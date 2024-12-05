@@ -1,0 +1,133 @@
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+#define OLED_RESET -1
+#define SCREEN_ADDRESS 0x3C
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+
+int ref_eye_height = 40, ref_eye_width = 40, ref_space_between_eye = 10, ref_corner_radius = 10;
+int left_eye_x, left_eye_y, right_eye_x, right_eye_y, left_eye_height, left_eye_width, right_eye_height, right_eye_width;
+int dir_x = 0, dir_y = 0, count = 0, timeD = 1000;
+
+void draw_eyes(bool update = true) {
+  display.clearDisplay();
+  auto draw_eye = [](int x, int y, int w, int h) {
+    display.fillRoundRect(x - w / 2, y - h / 2, w, h, ref_corner_radius, SSD1306_WHITE);
+  };
+  draw_eye(left_eye_x, left_eye_y, left_eye_width, left_eye_height);
+  draw_eye(right_eye_x, right_eye_y, right_eye_width, right_eye_height);
+  if (update) display.display();
+}
+
+void center_eyes(bool update = true) {
+  left_eye_width = right_eye_width = ref_eye_width;
+  left_eye_height = right_eye_height = ref_eye_height;
+  left_eye_x = SCREEN_WIDTH / 2 - ref_eye_width / 2 - ref_space_between_eye / 2;
+  right_eye_x = SCREEN_WIDTH / 2 + ref_eye_width / 2 + ref_space_between_eye / 2;
+  left_eye_y = right_eye_y = SCREEN_HEIGHT / 2;
+  draw_eyes(update);
+}
+
+void animate_eyes(int deltaH, int steps, int delayMs, bool invert = false) {
+  for (int i = 0; i < steps; i++) {
+    left_eye_height += (invert ? -deltaH : deltaH);
+    right_eye_height += (invert ? -deltaH : deltaH);
+    draw_eyes();
+    delay(delayMs);
+  }
+}
+
+void blink(int speed = 12) {
+  animate_eyes(-speed, 3, 1);
+  animate_eyes(speed, 3, 1);
+}
+
+void sleep() {
+  left_eye_height = right_eye_height = 2;
+  draw_eyes();
+}
+
+void wakeup() {
+  sleep();
+  animate_eyes(2, ref_eye_height / 2, 1);
+}
+
+void happy_eye() {
+  center_eyes(false);
+  int offset = ref_eye_height / 2;
+  for (int i = 0; i < 10; i++) {
+    display.fillTriangle(left_eye_x - left_eye_width / 2, left_eye_y + offset,
+                         left_eye_x + left_eye_width / 2, left_eye_y + offset + 5,
+                         left_eye_x - left_eye_width / 2, left_eye_y + ref_eye_height + offset, SSD1306_BLACK);
+    display.fillTriangle(right_eye_x + right_eye_width / 2, right_eye_y + offset,
+                         right_eye_x - right_eye_width / 2, right_eye_y + offset + 5,
+                         right_eye_x + right_eye_width / 2, right_eye_y + ref_eye_height + offset, SSD1306_BLACK);
+    offset -= 2;
+    display.display();
+    delay(1);
+  }
+  delay(1000);
+}
+
+void saccade(int dirX, int dirY) {
+  int ampX = 8, ampY = 6, blinkAmp = 8;
+  for (int i = 0; i < 2; i++) {
+    left_eye_x += dirX * ampX; right_eye_x += dirX * ampX;
+    left_eye_y += dirY * ampY; right_eye_y += dirY * ampY;
+    left_eye_height += (i ? blinkAmp : -blinkAmp);
+    right_eye_height += (i ? blinkAmp : -blinkAmp);
+    draw_eyes();
+    delay(1);
+  }
+}
+
+void move_eye(int dir, bool big = false) {
+  int moveAmp = 2, blinkAmp = 5, sizeAmp = big ? 1 : 0;
+  for (int i = 0; i < 3; i++) {
+    left_eye_x += dir * moveAmp; right_eye_x += dir * moveAmp;
+    left_eye_height += (i < 3 ? -blinkAmp : blinkAmp) + sizeAmp * (dir > 0);
+    right_eye_height += (i < 3 ? -blinkAmp : blinkAmp) + sizeAmp * (dir < 0);
+    draw_eyes();
+    delay(1);
+  }
+}
+
+void setup() {
+  Serial.begin(115200);
+  if (!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) for (;;);
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(0, 0);
+  display.println(F("GITHUB Link:\n\nintellar/oled_eye_display\n\nPress \"N\" for Next Animation"));
+  display.display();
+  delay(5000);
+  center_eyes();
+}
+
+void loop() {
+  if (Serial.available()) {
+    String input = Serial.readString(); // Read the input into a String
+    input.trim(); // Trim the input string in place
+    if (input.length() > 0) {
+      char cmd = input[0]; // Access the first character safely
+      if (cmd == 'N') {
+        switch (count++) {
+          case 0: wakeup(); break;
+          case 1: center_eyes(); break;
+          case 2: move_eye(1, true); break;
+          case 3: move_eye(-1, true); break;
+          case 4: blink(10); break;
+          case 5: happy_eye(); break;
+          case 6: blink(20); break;
+          case 7: for (int i = -1; i <= 1; i++) for (int j = -1; j <= 1; j++) saccade(i, j); break;
+          case 8: sleep(); break;
+          default: count = 0;
+        }
+      }
+    }
+  }
+}
